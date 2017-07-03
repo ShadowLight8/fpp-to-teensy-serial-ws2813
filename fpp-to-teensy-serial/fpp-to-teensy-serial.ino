@@ -1,17 +1,22 @@
+// Created by Nick Anderson 7/2/2017
+
 #include <OctoWS2811.h>
+#define LEDPIN 13 // Teensy 3.2 LED Pin
 
-#define NUM_PATCHED_CHANS 1944
+// Since the OctoWS2811 library is designed for 8 equal length led strips, we must define the max number of pixels on a single strip.
+// For example, if you plan to run 3 strips of lengths 48, 50, and 75, set the value to 75.
+// See the LED Address & Different Strip Lengths section of https://www.pjrc.com/teensy/td_libs_OctoWS2811.html for more detail.
+#define MAX_PIXELS_PER_STRIP 220
 
-#define LEDPIN 13
+// Within the sequencing software such as Vixen or Falcon Pi Player (FPP), the serial connection should be configured for MAX_PIXELS_PER_STRIP * 8 * 3 outputs.
+// 8 for the number of strips and 3 for each of the R, G, and B channels. The mapping of the channels to align with each of the 8 output the OctoWS2811 library should be within the sequencing software.
+// This code simply puts the serial stream into the OctoWS2811's input.
 
-const int ledsPerStrip = 32;
+DMAMEM int displayMemory[MAX_PIXELS_PER_STRIP * 6];
+int drawingMemory[MAX_PIXELS_PER_STRIP * 6];
 
-DMAMEM int displayMemory[ledsPerStrip*6];
-int drawingMemory[ledsPerStrip*6];
-
-const int config = WS2811_GRB | WS2811_800kHz;
-
-OctoWS2811 leds(ledsPerStrip, displayMemory, drawingMemory, config);
+// Configured for WS2813 LEDs which use a 300ns delay after transmitting data to latch.
+OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_GRB | WS2813_800kHz);
 
 void setup() {
   Serial.begin(115200);
@@ -19,11 +24,8 @@ void setup() {
   leds.begin();
   leds.show();
 
-  // Indicate that this code is running
   pinMode(LEDPIN, OUTPUT);
-  digitalWrite(LEDPIN, HIGH);
-  delay(1000);
-  digitalWrite(LEDPIN, LOW);
+  digitalWrite(LEDPIN, HIGH); // Led on by default, easier to see the Teensy is running.
 }
 
 int curPixel = -1;
@@ -36,31 +38,33 @@ void loop() {
   // this means multi-byte data could be split between packets, so we'll plan for the worst case.
 
   // Process serial data until the header <> is found
-  while (curPixel != 0) {
+  while (curPixel != 0)
     // Make sure there is data, then read 2 bytes. Second read may return -1 if there isn't a second byte to read, which is ok since that wasn't a header.
-    if (Serial.available() && Serial.read() == '<' && Serial.read() == '>') {
-      //Header found
-      curPixel = 0;
+    if (Serial.available())
+    {
+      if (Serial.read() == '<' && Serial.read() == '>')
+        //Header found, set curPixel to 0 to start loading data
+        curPixel = 0;
+      else
+        // Toggle LED to indicate data that isn't a header. Ideally, this shouldn't happen.
+        digitalWrite(LEDPIN, !digitalRead(LEDPIN));
     }
-    digitalWrite(LEDPIN, !digitalRead(LEDPIN));
-  }
   
-  while (curPixel < NUM_PATCHED_CHANS) {
+  while (curPixel < (MAX_PIXELS_PER_STRIP * 8)) {
     // If we have 3 bytes, then directly read and setPixel
-    if (Serial.available() >= 3) {
-      leds.setPixel(curPixel, Serial.read(), Serial.read(), Serial.read());
-    } else { // If not, then buffer 3 bytes prior to setPixel
-      //digitalWrite(LEDPIN, !digitalRead(LEDPIN)); // Help monitor when this condition occurs
-      while (serialBufferCounter < sizeof(serialBuffer)) {
-        if (Serial.available()) {
-          serialBuffer[serialBufferCounter] = Serial.read();
-          serialBufferCounter++;
-        }
-      }
+    if (Serial.available() >= 3)
+      leds.setPixel(curPixel++, Serial.read(), Serial.read(), Serial.read());
+    
+    // If not, then buffer 3 bytes prior to setPixel
+    else { 
+      //digitalWrite(LEDPIN, !digitalRead(LEDPIN)); // Option to monitor when this condition occurs, which is a lot
+      while (serialBufferCounter < 3) 
+        if (Serial.available()) 
+          serialBuffer[serialBufferCounter++] = Serial.read();
+
       serialBufferCounter = 0;
-      leds.setPixel(curPixel, serialBuffer[0], serialBuffer[1], serialBuffer[2]);
+      leds.setPixel(curPixel++, serialBuffer[0], serialBuffer[1], serialBuffer[2]);
     }
-    curPixel++;
   }
   leds.show();
   curPixel = -1;
