@@ -16,7 +16,7 @@ DMAMEM int displayMemory[MAX_PIXELS_PER_STRIP * 6];
 int drawingMemory[MAX_PIXELS_PER_STRIP * 6];
 
 // Configured for WS2813 LEDs which use a 300ns delay after transmitting data to latch.
-OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_GRB | WS2813_800kHz);
+OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB | WS2813_800kHz);
 
 void setup() {
   Serial.begin(115200);
@@ -36,6 +36,10 @@ void loop() {
   // Attempting to follow best practices from https://www.pjrc.com/teensy/td_serial.html
   // Teensy buffers 2 USB packets, ~128 bytes, but Serial.available only returns the bytes remaining in the first packet,
   // this means multi-byte data could be split between packets, so we'll plan for the worst case.
+
+  // Set the OctoWS2811 config so that the first 4 channels are RGB
+  // Can comment out the next line if all LEDs ues the same color order
+  OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB | WS2813_800kHz);
 
   // Process serial data until the header <> is found
   while (curPixel != 0)
@@ -65,6 +69,11 @@ void loop() {
       serialBufferCounter = 0;
       leds.setPixel(curPixel++, serialBuffer[0], serialBuffer[1], serialBuffer[2]);
     }
+
+    // Set the OctoWS2811 config so that the second 4 channels are GRB
+    // Can comment out the next 2 lines if all LEDs ues the same color order
+    if (curPixel == (MAX_PIXELS_PER_STRIP * 4))
+      OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_GRB | WS2813_800kHz);
   }
   leds.show();
   curPixel = -1;
