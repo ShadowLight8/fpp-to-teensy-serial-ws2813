@@ -3,9 +3,14 @@
 //  Updated MAX_PIXELS_PER_STRIP to 517
 //  Removed color order changing, will use Vixen/xLight to manage
 // Added comments from forum posts to help with setting up to use this code 12/19/2018
+// Updated after Halloween 2019 11/5/2019
+//  Major refactor to use Serial.readBytes
+//  Improved performance and reduced glitches seen
+//  Build with Teensy running at 120Mhz and Fastest optimizations
 
 #include <OctoWS2811.h>
 #define LEDPIN 13 // Teensy 3.2 LED Pin
+#define qBlink() {GPIOC_PTOR=32;} // Fast way to toggle LED on and off
 
 // Since the OctoWS2811 library is designed for 8 equal length led strips, we must define the max number of pixels on a single strip.
 // For example, if you plan to run 3 strips of lengths 48, 50, and 75, set the value to 75.
@@ -33,54 +38,62 @@ OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB |
 
 void setup() {
   Serial.begin(115200);
+  Serial.setTimeout(20);
   
   leds.begin();
   leds.show();
 
   pinMode(LEDPIN, OUTPUT);
-  digitalWrite(LEDPIN, HIGH); // Led on by default, easier to see the Teensy is running. Ideally, should always be on. If it goes on and off, it indicates the Serial Header is not where it is expected to be. Check channel/output counts.
+  qBlink();
+  // Leave led on by default, easier to see the Teensy is running. Ideally, should always be on. If it goes on and off, it indicates the Serial Header is not where it is expected to be. Check channel/output counts.
 }
 
-int curPixel = -1;
-char serialBuffer[3];
-uint8_t serialBufferCounter = 0;
+char megaBuffer[MAX_PIXELS_PER_STRIP * 8 * 3]; // 12408 currently
+int curItem = 0;
+//int n = 0;
+unsigned long millisSinceBlink;
 
 void loop() {
-  // Attempting to follow best practices from https://www.pjrc.com/teensy/td_serial.html
-  // Teensy buffers 2 USB packets, ~128 bytes, but Serial.available only returns the bytes remaining in the first packet,
-  // this means multi-byte data could be split between packets, so we'll plan for the worst case.
+  // Try to read 2 bytes or hit the timeout, loop around and try again
+  if (Serial.readBytes(megaBuffer, 2) == 2) {
+    if (megaBuffer[0] == '<' && megaBuffer[1] == '>') {
+    //Header found, set curItem to 0 to start loading data by reading big chunks of data at a time
+      
+// TODO: This only works with usb_desc.h NUM_USB_BUFFERS set to 31 from 12
+      curItem = 0;
+      while (curItem < 24) {
+        Serial.readBytes(&megaBuffer[curItem * MAX_PIXELS_PER_STRIP], MAX_PIXELS_PER_STRIP);
+        curItem++;
+      }
+      
+// TODO: This doesn't work
+//      curItem = 0;
+//      while (curItem < MAX_PIXELS_PER_STRIP * 8 * 3) {
+//        n = Serial.readBytes(megaBuffer + curItem, MAX_PIXELS_PER_STRIP * 8 * 3 - curItem);
+//        if (millis() - millisSinceBlink > 25) {
+//          millisSinceBlink = millis();
+//          qBlink();
+//        }
+//        curItem += n;
+//      }
 
-  OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB | WS2813_800kHz);
-
-  // Process serial data until the header <> is found
-  while (curPixel != 0)
-    // Make sure there is data, then read 2 bytes. Second read may return -1 if there isn't a second byte to read, which is ok since that wasn't a header.
-    if (Serial.available())
-    {
-      if (Serial.read() == '<' && Serial.read() == '>')
-        //Header found, set curPixel to 0 to start loading data
-        curPixel = 0;
-      else
-        // Toggle LED to indicate data that isn't a header. Ideally, this shouldn't happen.
-        digitalWrite(LEDPIN, !digitalRead(LEDPIN));
+// TODO: This doesn't work
+//      Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3);
+      
+      // TODO: Directly load the Serial data into the leds' drawingMemory if more speed is needed
+      curItem = 0;
+      while (curItem < (MAX_PIXELS_PER_STRIP * 8)) {
+        leds.setPixel(curItem, megaBuffer[curItem * 3], megaBuffer[curItem * 3 + 1], megaBuffer[curItem * 3 + 2]);
+        curItem++;
+      }
+      leds.show();
     }
-  
-  while (curPixel < (MAX_PIXELS_PER_STRIP * 8)) {
-    // If we have 3 bytes, then directly read and setPixel
-    if (Serial.available() >= 3)
-      leds.setPixel(curPixel++, Serial.read(), Serial.read(), Serial.read());
-    
-    // If not, then buffer 3 bytes prior to setPixel
-    else { 
-      //digitalWrite(LEDPIN, !digitalRead(LEDPIN)); // Option to monitor when this condition occurs, which is a lot
-      while (serialBufferCounter < 3) 
-        if (Serial.available()) 
-          serialBuffer[serialBufferCounter++] = Serial.read();
-
-      serialBufferCounter = 0;
-      leds.setPixel(curPixel++, serialBuffer[0], serialBuffer[1], serialBuffer[2]);
+    else {
+      // Toggle LED to indicate data that isn't a header.
+      if (millis() - millisSinceBlink > 250) {
+         millisSinceBlink = millis();
+         qBlink();
+      }
     }
   }
-  leds.show();
-  curPixel = -1;
 }
