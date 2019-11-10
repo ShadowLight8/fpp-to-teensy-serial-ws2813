@@ -70,10 +70,10 @@ void loop() {
 //      curItem = 0;
 //      while (curItem < MAX_PIXELS_PER_STRIP * 8 * 3) {
 //        n = Serial.readBytes(megaBuffer + curItem, MAX_PIXELS_PER_STRIP * 8 * 3 - curItem);
-//        if (millis() - millisSinceBlink > 25) {
-//          millisSinceBlink = millis();
-//          qBlink();
-//        }
+        if (millis() - millisSinceBlink > 25) {
+          millisSinceBlink = millis();
+          qBlink();
+        }
 //        curItem += n;
 //      }
 
@@ -88,12 +88,12 @@ void loop() {
       }
       leds.show();
     }
-    else {
-      // Toggle LED to indicate data that isn't a header.
-      if (millis() - millisSinceBlink > 250) {
-         millisSinceBlink = millis();
-         qBlink();
-      }
-    }
+//    else {
+//      // Toggle LED to indicate data that isn't a header.
+//      if (millis() - millisSinceBlink > 250) {
+//         millisSinceBlink = millis();
+//         qBlink();
+//      }
+//    }
   }
 }
