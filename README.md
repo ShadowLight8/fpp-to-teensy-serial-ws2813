@@ -1,9 +1,9 @@
-#fpp-to-teensy-serial-ws2813
+# fpp-to-teensy-serial-ws2813
 Code for controlling WS2811 / WS2813 led lights with a Teensy 3.2 connected via USB/Serial to a Raspberry Pi running Falcon Player
 
 This code is designed to get the serial data stream into the OctoWS2811's drawingMemory buffer as fast as possible.
 
-##Config Screenshots
+## Config Screenshots
 Options in Arduino IDE that have worked well:<br>
 ![Arduino Options](arduino_options.png)
 
@@ -13,7 +13,7 @@ Example of Serial configuration in Vixen:<br>
 Example of Patching configuration in Vixen:<br>
 ![Vixen to Teensy Patching](vixen_teensy_patching.png)
 
-##Full stack from Light Sequence to LED
+## Full stack from Light Sequence to LED
 Windows 10 PC<br>
 ---running<br>
 Vixen 3 (http://www.vixenlights.com/)<br>
