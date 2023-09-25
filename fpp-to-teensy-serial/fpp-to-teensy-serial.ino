@@ -15,6 +15,10 @@
 //  With a RPi4 running FPP 4.0.1, MAX_PIXELS_PER_STRIP set to 517, CPU Speed @ 120 Mhz, and Fastest with LTO set, able to run at 17ms per frame or about ~58.8 fps 7/15/2020
 //  Updated when/how the Teensy blinks to make it easier to see when a potential issue exists
 //  Final clean up and testing 8/26/2020
+// Updated for Halloween 2023 Show 9/24/2023
+//  Updated Arduino IDE to 2.2.1
+//  Updated Teensyduino to 1.58.1
+//  Set MAX_PIXELS_PER_STRIP to 541 to support new spinner
 
 // Other interesting ideas:
 //   Thread looking at how to quickly setup the drawingMemory: https://forum.pjrc.com/threads/28115-Trouble-wrapping-my-head-around-some-parts-of-movie2serial-PDE
@@ -31,7 +35,7 @@
 // See the LED Address & Different Strip Lengths section of https://www.pjrc.com/teensy/td_libs_OctoWS2811.html for more detail.
 
 // When you change the MAX_PIXELS_PER_STRIP, be sure to update Vixen/xLight/FPP/etc with the new channel/output count of MAX_PIXELS_PER_STRIP * 8 * 3
-#define MAX_PIXELS_PER_STRIP 517
+#define MAX_PIXELS_PER_STRIP 541
 
 // Within the sequencing software such as Vixen or Falcon Pi Player (FPP), the serial connection should be configured for MAX_PIXELS_PER_STRIP * 8 * 3 outputs and to send a header of <>
 // 8 for the number of strips and 3 for each of the R, G, and B channels. The mapping of the channels to align with each of the 8 output the OctoWS2811 library should be within the sequencing software.
@@ -48,7 +52,8 @@ DMAMEM int displayMemory[MAX_PIXELS_PER_STRIP * 6];
 DMAMEM byte drawingMemory[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(32))); // Ensure 32 byte boundary because of Byte type doesn't require one
 
 // Using an aligned attribute to force the linker to place megaBuffer such that it doesn't cross over the SRAM_L and SRAM_U boundary at 0x20000000.
-// The memory placement can be verified in the fpp-to-teensy-serial.ino.sym file located in C:\Users\<username>\AppData\Local\Temp\arduino_build_<rnd_number>
+// The memory placement can be verified in the fpp-to-teensy-serial.ino.sym file located in C:\Users\<username>\AppData\Local\Temp\arduino\sketches\<rnd_number>
+// Older version of the Arduino IDE would place it in C:\Users\<username>\AppData\Local\Temp\arduino_build_<rnd_number>
 // Search for megaBuffer - Location should be typically be 20000000 or higher, but at the least, the location + size should not cross 20000000
 // attribute aligned value must be a power of 2
 char megaBuffer[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(2048)));
