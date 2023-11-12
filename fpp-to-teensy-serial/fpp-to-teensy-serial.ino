@@ -78,7 +78,8 @@ int pixel[8];
 byte b;
 unsigned long millisSinceBlink = 0;
 
-FASTRUN void loop() {
+// Tried with FASTRUN, but caused glitches to appear at 17ms
+void loop() {
   // Quickly check if next bytes are the header
   if (Serial.read() == '<' && Serial.read() == '>') {
     Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3);
