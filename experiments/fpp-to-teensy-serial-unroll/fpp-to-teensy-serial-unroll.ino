@@ -19,14 +19,13 @@
 //  Updated Arduino IDE to 2.2.1
 //  Updated Teensyduino to 1.58.1
 //  Set MAX_PIXELS_PER_STRIP to 541 to support new spinner
-//  Key fact: 30us * 541 pixels + 300us = 16.53ms just to send data to the lights, meaning 17ms is the fastest possible frame timing
-// Update 11/11/2023
-//  Minor code clean up and tweaks
+// Updated for Speed Improvments 11/4/2023
+//  Unrolled a few loops, reduced branches
+//  Tested with Fastest, Fastest + pure-code, Fastest with LTO, Fastest + pure-code + LTO
 
 // Other interesting ideas:
 //   Thread looking at how to quickly setup the drawingMemory: https://forum.pjrc.com/threads/28115-Trouble-wrapping-my-head-around-some-parts-of-movie2serial-PDE
 //   Link to another conversion method: https://github.com/bitogre/OctoWS2811/commit/18e3c93fac3aa7546c152969c9f9485c153a6ad7
-//   Create an output type plugin for FPP that streams the drawingMemory format - Shift all computation to the FPP host
 
 // ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----
 #include <OctoWS2811.h>
@@ -53,7 +52,7 @@
 // Under the Arduino Tools menu, make sure the "USB Type" is set to just "Serial". Testing with CPU speed @ 120 Mhz and Optimizations as Fastest with LTO worked well.
 
 DMAMEM int displayMemory[MAX_PIXELS_PER_STRIP * 6];
-byte drawingMemory[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(32))); // Ensure 32 byte boundary because of Byte type doesn't require one
+DMAMEM byte drawingMemory[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(32))); // Ensure 32 byte boundary because of Byte type doesn't require one
 
 // Using an aligned attribute to force the linker to place megaBuffer such that it doesn't cross over the SRAM_L and SRAM_U boundary at 0x20000000.
 // The memory placement can be verified in the fpp-to-teensy-serial.ino.sym file located in C:\Users\<username>\AppData\Local\Temp\arduino\sketches\<rnd_number>
@@ -65,46 +64,59 @@ char megaBuffer[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(2048)));
 OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB | WS2813_800kHz);
 
 void setup() {
+  Serial.begin(115200);
+
   leds.begin();
   leds.show();
 
   // Leave led on by default, easier to see the Teensy is running. Ideally, should always be on. If it goes on and off, it indicates an issue. See bottom of the code for more info.
   pinMode(LED_BUILTIN, OUTPUT);
   qBlink();
+  delay(750);
+  qBlink();
+  delay(250);
 }
 
-int offset, curItem, i, mask;
+int offset, curItem, mask;
 int pixel[8];
-byte b;
 unsigned long millisSinceBlink = 0;
 
 FASTRUN void loop() {
   // Quickly check if next bytes are the header
   if (Serial.read() == '<' && Serial.read() == '>') {
     Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3);
-
-    // Code is based on movie2serial.pde
-    // While loop runs through one strip worth - Number of pixels * 3 channels R,G,B
-    // First For loop gets each strip's nth (i) pixel's color data as an int
-    // Second For loop set which bit from each pixel we process
-    //  Inner For loop gets that bit from each pixel and accumulates them into a byte (b)
+    
     offset = 0;
     curItem = 0;
+    
+    // While loop runs through one strip worth - Number of pixels * 3 channels R,G,B
     while (curItem < MAX_PIXELS_PER_STRIP * 3) {
-      for (i = 0; i < 8; i++) {
-        // Color order should be managed by the Sequencer (like Vixen/xLights) configuration
-        pixel[i] = (megaBuffer[curItem + i * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + i * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + i * MAX_PIXELS_PER_STRIP * 3];
-      }
+
+      // Get each strip's nth (i) pixel's color data as an int, unrolled to improve performance by eliminating some math operations at run time
+      pixel[0] = (megaBuffer[curItem + 0 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 0 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 0 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[1] = (megaBuffer[curItem + 1 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 1 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 1 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[2] = (megaBuffer[curItem + 2 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 2 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 2 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[3] = (megaBuffer[curItem + 3 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 3 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 3 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[4] = (megaBuffer[curItem + 4 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 4 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 4 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[5] = (megaBuffer[curItem + 5 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 5 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 5 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[6] = (megaBuffer[curItem + 6 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 6 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 6 * MAX_PIXELS_PER_STRIP * 3];
+      pixel[7] = (megaBuffer[curItem + 7 * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + 7 * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + 7 * MAX_PIXELS_PER_STRIP * 3];
+
+      // For loop sets which bit from each pixel we process starting from bit 23 going to bit 0
       for (mask = 0x800000; mask != 0; mask >>= 1) {
-        b = 0;
-        for (i = 0; i < 8; i++) {
-          if ((pixel[i] & mask) != 0) b |= (1 << i);
-        }
-        // Load data directly into OctoWS2811's drawingMemory
-        drawingMemory[offset++] = b;
+        // Get the bit from each pixel and load directly into OctoWS2811's drawingMemory
+        drawingMemory[offset++] = ((pixel[0] & mask) != 0) << 0 |
+                                  ((pixel[1] & mask) != 0) << 1 |
+                                  ((pixel[2] & mask) != 0) << 2 |
+                                  ((pixel[3] & mask) != 0) << 3 |
+                                  ((pixel[4] & mask) != 0) << 4 |
+                                  ((pixel[5] & mask) != 0) << 5 |
+                                  ((pixel[6] & mask) != 0) << 6 |
+                                  ((pixel[7] & mask) != 0) << 7;
       }
       curItem += 3;
     }
+
     leds.show();
   } else {
     // Is there USB Serial data that isn't a header? If so, flash LED every 750ms

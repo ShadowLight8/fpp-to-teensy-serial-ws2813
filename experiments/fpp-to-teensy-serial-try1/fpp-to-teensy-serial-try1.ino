@@ -19,9 +19,6 @@
 //  Updated Arduino IDE to 2.2.1
 //  Updated Teensyduino to 1.58.1
 //  Set MAX_PIXELS_PER_STRIP to 541 to support new spinner
-//  Key fact: 30us * 541 pixels + 300us = 16.53ms just to send data to the lights, meaning 17ms is the fastest possible frame timing
-// Update 11/11/2023
-//  Minor code clean up and tweaks
 
 // Other interesting ideas:
 //   Thread looking at how to quickly setup the drawingMemory: https://forum.pjrc.com/threads/28115-Trouble-wrapping-my-head-around-some-parts-of-movie2serial-PDE
@@ -65,57 +62,90 @@ char megaBuffer[MAX_PIXELS_PER_STRIP * 8 * 3] __attribute__((aligned(2048)));
 OctoWS2811 leds(MAX_PIXELS_PER_STRIP, displayMemory, drawingMemory, WS2811_RGB | WS2813_800kHz);
 
 void setup() {
+  Serial.setTimeout(16); //IDEA: Timeout is for total time to readBytes. Set to expected frame time. Changed from 1000ms to 17ms
+
   leds.begin();
   leds.show();
 
   // Leave led on by default, easier to see the Teensy is running. Ideally, should always be on. If it goes on and off, it indicates an issue. See bottom of the code for more info.
   pinMode(LED_BUILTIN, OUTPUT);
   qBlink();
+  delay(250);
+  qBlink();
 }
 
-int offset, curItem, i, mask;
+int offset, curItem, i, mask, tmp;
 int pixel[8];
 byte b;
 unsigned long millisSinceBlink = 0;
 
 FASTRUN void loop() {
   // Quickly check if next bytes are the header
+  // IDEA: Serial.available isn't really needed functionally, but it does yield() when no data present
+  //if (Serial.available() > 0 && Serial.read() == '<' && Serial.read() == '>') {
   if (Serial.read() == '<' && Serial.read() == '>') {
-    Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3);
+    //Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3);
+    if (Serial.readBytes(megaBuffer, MAX_PIXELS_PER_STRIP * 8 * 3) == MAX_PIXELS_PER_STRIP * 8 * 3) {
+      // IDEA: If count is as expected, then process as normal
+      Serial.clear(); // IDEA: Dump anything left in the USB buffers
+      offset = 0;
+      curItem = 0;
+      while (curItem < MAX_PIXELS_PER_STRIP * 3) {
 
-    // Code is based on movie2serial.pde
-    // While loop runs through one strip worth - Number of pixels * 3 channels R,G,B
-    // First For loop gets each strip's nth (i) pixel's color data as an int
-    // Second For loop set which bit from each pixel we process
-    //  Inner For loop gets that bit from each pixel and accumulates them into a byte (b)
-    offset = 0;
-    curItem = 0;
-    while (curItem < MAX_PIXELS_PER_STRIP * 3) {
-      for (i = 0; i < 8; i++) {
-        // Color order should be managed by the Sequencer (like Vixen/xLights) configuration
-        pixel[i] = (megaBuffer[curItem + i * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + i * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + i * MAX_PIXELS_PER_STRIP * 3];
-      }
-      for (mask = 0x800000; mask != 0; mask >>= 1) {
-        b = 0;
         for (i = 0; i < 8; i++) {
-          if ((pixel[i] & mask) != 0) b |= (1 << i);
+          // Color order should be managed by the Sequencer (like Vixen/xLights) configuration
+          pixel[i] = (megaBuffer[curItem + i * MAX_PIXELS_PER_STRIP * 3] << 16) | (megaBuffer[curItem + 1 + i * MAX_PIXELS_PER_STRIP * 3] << 8) | megaBuffer[curItem + 2 + i * MAX_PIXELS_PER_STRIP * 3];
         }
-        // Load data directly into OctoWS2811's drawingMemory
-        drawingMemory[offset++] = b;
+
+        for (mask = 0x800000; mask != 0; mask >>= 1) {
+          b = 0;
+          for (i = 0; i < 8; i++) {
+            //if ((pixel[i] & mask) != 0) b |= (1 << i);
+            b |= ((pixel[i] & mask) != 0) << i; // Seems to be a bit quicker - Good @ 17ms, A bit less minor glitching @ 16ms
+          }
+          // Load data directly into OctoWS2811's drawingMemory
+          drawingMemory[offset++] = b;
+        }
+        curItem += 3;
       }
-      curItem += 3;
+      // IDEA: Just before starting leds.show, check if last one is still running. If so, then processing can't keep up.
+      // See this a bit at 17ms, quite a bit more at 16ms + minor glitching
+      //if (leds.busy()) qBlink();
+      leds.show();
+      tmp = Serial.peek();
+      if (!(tmp == -1 || tmp == '<')) qBlink();
+      //if (Serial.available() > 0) {
+        // IDEA: If here and Serial data is available, what to do? Likely not going to be keeping up with data coming in this fast
+        // Since leds.show isn't blocking for the DMA transfer time, this case should never happen
+      //}
+    } else {
+      qBlink();
+      // IDEA: Didn't get the expected data count, what to do? Jump out of loop or scan for next header?
+      //       This is made more critical with a lower Serial timeout
+      //       Test cases:
+      //         Too little data sent per frame = Timeout should catch
+      //         Too much data sent per frame = Post leds.show() should catch if Serial.avaiable & NOT the header <>
+      //         Frames being sent too fast = Post leds.show() should catch if Serial.avaiable & IS the header <>
+      // Code is based on movie2serial.pde
+      // While loop runs through one strip worth - Number of pixels * 3 channels R,G,B
+      // First For loop gets each strip's nth (i) pixel's color data as an int
+      // Second For loop set which bit from each pixel we process
+      //  Inner For loop gets that bit from each pixel and accumulates them into a byte (b)
     }
-    leds.show();
-  } else {
+  } //else {
     // Is there USB Serial data that isn't a header? If so, flash LED every 750ms
     // Flashing can indicate the following:
     //    Serial header of <> is missing (Lights most likely aren't working) - Check FPP settings that the header is set
     //    Serial header of <> isn't where it is expected (Lights might be working) - Verify MAX_PIXELS_PER_STRIP * 8 * 3 matches the number of channels
     //    Serial data not being processed fast enough - Sequence refresh rate should be slowed down until flashing stops (Tested with MAX_PIXELS_PER_STRIP = 517 with 17ms sequence timing)
-    if (Serial.peek() != -1 && Serial.peek() != '<' && millis() - millisSinceBlink > 750) {
-      qBlink();
-      millisSinceBlink = millis();
-    } else if (millis() - millisSinceBlink > 3000) // Turn LED back on in case it was left off, but no more data has come in
-      digitalWriteFast(LED_BUILTIN, 1);
-  }
+    //tmp = Serial.peek();
+    //if (tmp != -1 && tmp != '<') { // Ok if there is no data or the start of the header is present
+      //} && Serial.peek() != '<' && millis() - millisSinceBlink > 750) {
+    //if (Serial.available() > 0 && Serial.peek() != '<' && millis() - millisSinceBlink > 750) {
+      //qBlink();
+    //  millisSinceBlink = millis();
+    //} else if (millis() - millisSinceBlink > 3000) // Turn LED back on in case it was left off, but no more data has come in
+    //  digitalWriteFast(LED_BUILTIN, 1);
+    //}
+  //}
 }
